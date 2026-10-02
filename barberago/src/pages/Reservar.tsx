@@ -9,6 +9,8 @@ interface Info {
   negocio: { id: string; nombre: string; slug: string; telefono: string | null; direccion: string | null; logo_url: string | null; zona_horaria: string; moneda: string; horario: Horario; pago_en_linea: ModoPago; anticipo_pct: number };
   servicios: { id: string; nombre: string; descripcion: string | null; categoria: string | null; duracion_min: number; precio: number }[];
   barberos: { id: string; nombre: string; foto_url: string | null; color: string }[];
+  /** Productos que se pueden comprar con la reserva (solo si la barbería cobra en línea). */
+  productos?: { id: string; nombre: string; descripcion: string | null; precio: number; disponible: number }[];
 }
 /** Hora de inicio posible; las ocupadas vienen con libre = false y sin barbero. */
 type Hueco = { inicio: string; barbero_id: string | null; libre?: boolean };
@@ -29,6 +31,7 @@ export default function Reservar() {
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [listo, setListo] = useState<Confirmacion | null>(null);
+  const [carrito, setCarrito] = useState<Record<string, number>>({});
   const formulario = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -84,6 +87,7 @@ export default function Reservar() {
       const r = await llamarPagos<{ url: string }>({
         accion: 'crear', slug, servicio: servicioId, barbero: barberoId || null, inicio: hueco.inicio,
         nombre, telefono, notas: notas || null,
+        productos: Object.entries(carrito).filter(([, n]) => n > 0).map(([id, cantidad]) => ({ id, cantidad })),
       });
       window.location.href = r.url;
     } catch (err) {
@@ -112,6 +116,11 @@ export default function Reservar() {
   const modoPago = negocio.pago_en_linea;
   const anticipo = serv ? Math.round(serv.precio * negocio.anticipo_pct) / 100 : 0;
   const cobraEnLinea = modoPago !== 'desactivado' && anticipo > 0;
+  const productos = cobraEnLinea ? info.productos || [] : [];
+  const elegidos = productos.filter((p) => (carrito[p.id] || 0) > 0);
+  const totalProductos = elegidos.reduce((a, p) => a + p.precio * carrito[p.id], 0);
+  const aPagar = anticipo + totalProductos;
+  const cambiarCantidad = (id: string, n: number) => setCarrito((c) => ({ ...c, [id]: n }));
 
   if (listo) {
     return (
@@ -214,11 +223,48 @@ export default function Reservar() {
           <Campo etiqueta="Nombre"><input value={nombre} onChange={(e) => setNombre(e.target.value)} required minLength={2} maxLength={80} autoComplete="name" /></Campo>
           <Campo etiqueta="WhatsApp o teléfono"><input value={telefono} onChange={(e) => setTelefono(e.target.value)} required inputMode="tel" autoComplete="tel" placeholder="10 dígitos" /></Campo>
           <Campo etiqueta="Comentario (opcional)"><input value={notas} onChange={(e) => setNotas(e.target.value)} maxLength={300} /></Campo>
+          {productos.length > 0 && (
+            <div className="tienda">
+              <h3>¿Quieres llevar algo más?</h3>
+              <p className="tenue pequeno">Págalo ahora y te lo entregan en tu cita.</p>
+              {productos.map((p) => {
+                const n = carrito[p.id] || 0;
+                return (
+                  <div key={p.id} className={`producto-tienda ${n ? 'elegida' : ''}`}>
+                    <div className="crece">
+                      <strong>{p.nombre}</strong>
+                      <div className="tenue pequeno">{m(p.precio)}{p.descripcion && ` · ${p.descripcion}`}</div>
+                    </div>
+                    {n === 0 ? (
+                      <button type="button" className="btn" onClick={() => cambiarCantidad(p.id, 1)}>Agregar</button>
+                    ) : (
+                      <div className="contador" role="group" aria-label={`Cantidad de ${p.nombre}`}>
+                        <button type="button" className="btn-icono" aria-label="Quitar uno" onClick={() => cambiarCantidad(p.id, n - 1)}>−</button>
+                        <span aria-live="polite">{n}</span>
+                        <button type="button" className="btn-icono" aria-label="Agregar uno" disabled={n >= p.disponible} onClick={() => cambiarCantidad(p.id, n + 1)}>+</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           {cobraEnLinea && (
             <div className="pago-resumen">
+              {elegidos.length > 0 && (
+                <table className="resumen-tabla">
+                  <tbody>
+                    <tr><td>{serv.nombre}{anticipo < serv.precio && ` (anticipo ${negocio.anticipo_pct}%)`}</td><td className="num">{m(anticipo)}</td></tr>
+                    {elegidos.map((p) => (
+                      <tr key={p.id}><td>{carrito[p.id]} × {p.nombre}</td><td className="num">{m(p.precio * carrito[p.id])}</td></tr>
+                    ))}
+                    <tr className="total"><td>Total a pagar</td><td className="num">{m(aPagar)}</td></tr>
+                  </tbody>
+                </table>
+              )}
               {anticipo < serv.precio ? (
-                <p>Para apartar se paga un anticipo de <strong>{m(anticipo)}</strong>; el resto ({m(serv.precio - anticipo)}) en la barbería.</p>
-              ) : <p>Puedes pagar ahora <strong>{m(anticipo)}</strong> con tarjeta o Mercado Pago.</p>}
+                <p>Para apartar se paga un anticipo de <strong>{m(anticipo)}</strong>; el resto del servicio ({m(serv.precio - anticipo)}) en la barbería.</p>
+              ) : elegidos.length === 0 && <p>Puedes pagar ahora <strong>{m(anticipo)}</strong> con tarjeta o Mercado Pago.</p>}
               <p className="tenue pequeno">Pago seguro con Mercado Pago. Tu horario queda apartado 20 minutos mientras pagas.</p>
             </div>
           )}
@@ -226,9 +272,9 @@ export default function Reservar() {
           {cobraEnLinea ? (
             <>
               <button type="button" className="btn btn-primario ancho grande" disabled={enviando} onClick={pagar}>
-                {enviando ? 'Abriendo Mercado Pago…' : `Pagar ${m(anticipo)} y reservar`}
+                {enviando ? 'Abriendo Mercado Pago…' : `Pagar ${m(aPagar)} y reservar`}
               </button>
-              {modoPago === 'opcional' && (
+              {modoPago === 'opcional' && elegidos.length === 0 && (
                 <button className="btn ancho" disabled={enviando}>Reservar y pagar en la barbería</button>
               )}
             </>

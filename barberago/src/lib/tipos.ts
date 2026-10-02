@@ -87,6 +87,18 @@ export interface Producto {
   stock: number;
   stock_minimo: number;
   activo: boolean;
+  en_linea: boolean;
+  descripcion: string | null;
+}
+
+/** Producto que el cliente compró al reservar en línea; se entrega en la cita. */
+export interface CitaProducto {
+  id: string;
+  cita_id: string;
+  producto_id: string | null;
+  nombre: string;
+  cantidad: number;
+  precio_unit: number;
 }
 
 export interface Cliente {

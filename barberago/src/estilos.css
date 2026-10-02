@@ -370,6 +370,18 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 /* Pagos en línea */
 .pago-resumen { background: var(--superficie-2); border-radius: 10px; padding: .7rem .9rem; }
 .pago-resumen p { margin: 0 0 .25rem; }
+.tienda { display: flex; flex-direction: column; gap: .45rem; }
+.tienda h3 { margin: .25rem 0 0; font-size: 1rem; }
+.tienda > p { margin: 0 0 .2rem; }
+.producto-tienda { display: flex; align-items: center; gap: .75rem; padding: .6rem .75rem; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); }
+.producto-tienda.elegida { border-color: var(--primario); box-shadow: inset 0 0 0 1px var(--primario); }
+.contador { display: flex; align-items: center; gap: .35rem; }
+.contador span { min-width: 1.5rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.contador .btn-icono { border: 1px solid var(--borde); width: 36px; height: 36px; font-size: 1.1rem; }
+.resumen-tabla { width: 100%; border-collapse: collapse; margin-bottom: .4rem; }
+.resumen-tabla td { padding: .15rem 0; }
+.resumen-tabla .num { text-align: right; font-variant-numeric: tabular-nums; }
+.resumen-tabla .total td { border-top: 1px solid var(--borde); padding-top: .35rem; font-weight: 700; }
 .pasos-lista { margin: 0; padding-left: 1.2rem; display: grid; gap: .3rem; }
 .insignia-prueba { margin-left: .5rem; background: color-mix(in srgb, var(--alerta) 16%, var(--superficie)); color: var(--alerta); }
 .insignia-pago { background: color-mix(in srgb, var(--ok) 14%, var(--superficie)); color: var(--ok); }

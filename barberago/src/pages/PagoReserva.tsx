@@ -8,6 +8,7 @@ import { Aviso, Cargando } from '../components/ui';
 interface EstadoReserva {
   id: string; inicio: string; estado: string; precio: number | null; pago_monto: number | null;
   pago_estado: EstadoPago | null; pago_expira: string | null; cliente: string; servicio: string | null; barbero: string | null;
+  productos?: { nombre: string; cantidad: number; precio: number }[];
   negocio: { nombre: string; slug: string; direccion: string | null; telefono: string | null; zona_horaria: string; moneda: string; logo_url: string | null };
 }
 
@@ -71,7 +72,13 @@ export default function PagoReserva() {
   const fecha = new Date(r.inicio).toLocaleDateString('es-MX', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' });
   const horaTxt = new Date(r.inicio).toLocaleTimeString('es-MX', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
   const m = (n: number | null) => dinero(n, r.negocio.moneda);
-  const resto = Number(r.precio || 0) - Number(r.pago_monto || 0);
+  const productos = r.productos || [];
+  const totalProductos = productos.reduce((a, p) => a + Number(p.precio) * p.cantidad, 0);
+  // Los productos se pagan completos; lo que falte es del servicio.
+  const resto = Number(r.precio || 0) - (Number(r.pago_monto || 0) - totalProductos);
+  const listaProductos = productos.length > 0 && (
+    <p className="pequeno">Productos: {productos.map((p) => `${p.cantidad} × ${p.nombre}`).join(', ')}. Te los entregan en tu cita.</p>
+  );
   const pagada = r.pago_estado === 'pagado';
 
   return (
@@ -84,6 +91,7 @@ export default function PagoReserva() {
             <p>Tu cita en <strong>{r.negocio.nombre}</strong> quedó confirmada:</p>
             <p className="grande-texto">{fecha}<br />{horaTxt}</p>
             <p>{r.servicio}{r.barbero && ` con ${r.barbero}`}</p>
+            {listaProductos}
             <p>Pagaste <strong>{m(r.pago_monto)}</strong>{resto > 0.009 && <> · en la barbería pagas {m(resto)}</>}</p>
             {r.negocio.direccion && <p className="tenue">{r.negocio.direccion}</p>}
             <p className="tenue pequeno">
@@ -100,7 +108,7 @@ export default function PagoReserva() {
                 : 'Estamos esperando la confirmación de Mercado Pago. Esto suele tardar unos segundos.'}
             </p>
             <p className="grande-texto">{fecha}<br />{horaTxt}</p>
-            <p>{r.servicio} · {m(r.pago_monto)}</p>
+            <p>{r.servicio}{productos.length > 0 && ` + ${productos.reduce((a, p) => a + p.cantidad, 0)} producto(s)`} · {m(r.pago_monto)}</p>
             <Aviso>{error}</Aviso>
             <button className="btn btn-primario ancho grande" onClick={reintentar} disabled={enviando}>
               {enviando ? 'Abriendo Mercado Pago…' : `Pagar ${m(r.pago_monto)}`}

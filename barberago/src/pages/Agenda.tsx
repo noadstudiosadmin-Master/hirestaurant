@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { useNavigate } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useNegocio } from '../lib/sesion';
-import { ESTADOS, apartadoVencido, type Barbero, type Bloqueo, type Cita, type EstadoCita } from '../lib/tipos';
+import { ESTADOS, apartadoVencido, type Barbero, type Bloqueo, type Cita, type CitaProducto, type EstadoCita } from '../lib/tipos';
 import { deIsoDia, diaIso, dinero, fechaLarga, hora, isoDia, minutos, sumarDias, whatsapp } from '../lib/formato';
 import { Aviso, Campo, Modal } from '../components/ui';
 import ClienteBuscador, { asegurarCliente, type ClienteElegido } from '../components/ClienteBuscador';
@@ -419,6 +419,11 @@ function DetalleCita({ cita, onCerrar, onCambio, onEditar, onCobrar }: {
   const { negocio, barberos, servicios, puede } = useNegocio();
   const [error, setError] = useState('');
   const [barberoAtiende, setBarberoAtiende] = useState(cita.barbero_id || barberos.find((b) => b.activo)?.id || '');
+  const [compras, setCompras] = useState<CitaProducto[]>([]);
+  useEffect(() => {
+    if (cita.origen !== 'en_linea') return;
+    supabase.from('cita_productos').select('*').eq('cita_id', cita.id).then(({ data }) => setCompras((data as CitaProducto[]) || []));
+  }, [cita.id, cita.origen]);
   const serv = servicios.find((s) => s.id === cita.servicio_id);
   const barb = barberos.find((b) => b.id === cita.barbero_id);
   const nombre = cita.clientes?.nombre || cita.cliente_nombre || 'Cliente';
@@ -451,6 +456,7 @@ function DetalleCita({ cita, onCerrar, onCambio, onEditar, onCobrar }: {
         {cita.pago_estado === 'pagado' && <><dt>Pago</dt><dd><span className="insignia insignia-pago">Pagó {dinero(cita.pago_monto, negocio.moneda)} en línea</span></dd></>}
         {cita.pago_estado === 'pendiente' && <><dt>Pago</dt><dd>Apartado mientras paga en Mercado Pago (hasta las {hora(cita.pago_expira || cita.inicio)})</dd></>}
         {(cita.pago_estado === 'reembolsar' || cita.pago_estado === 'reembolsado') && <><dt>Pago</dt><dd>Pago devuelto al cliente</dd></>}
+        {compras.length > 0 && <><dt>Productos</dt><dd>{compras.map((p) => `${p.cantidad} × ${p.nombre}`).join(', ')} <span className="tenue">(entregar en la cita)</span></dd></>}
         {cita.estado !== 'en_espera' && <><dt>Horario</dt><dd>{fechaLarga(cita.inicio)}, {hora(cita.inicio)} a {hora(cita.fin)}</dd></>}
         <dt>Barbero</dt><dd>{barb?.nombre || 'Cualquiera'}</dd>
         {tel && <><dt>Teléfono</dt><dd><a href={`tel:${tel}`}>{tel}</a></dd></>}

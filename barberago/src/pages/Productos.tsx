@@ -36,7 +36,7 @@ export default function Productos() {
             <tbody>
               {lista.map((p) => (
                 <tr key={p.id} className={p.activo ? '' : 'inactivo'}>
-                  <td>{p.nombre}{p.sku && <div className="tenue pequeno">{p.sku}</div>}</td>
+                  <td>{p.nombre}{p.en_linea && p.activo && <span className="insignia insignia-pago">En línea</span>}{p.sku && <div className="tenue pequeno">{p.sku}</div>}</td>
                   <td className="num">{dinero(p.precio, negocio.moneda)}</td>
                   <td className="num">{dinero(p.costo, negocio.moneda)}</td>
                   <td className="num">{p.stock <= p.stock_minimo ? <span className="insignia estado-no_asistio">{p.stock}</span> : p.stock}</td>
@@ -57,13 +57,14 @@ function FormProducto({ producto, onCerrar, onGuardado }: { producto: Producto |
   const [f, setF] = useState({
     nombre: producto?.nombre || '', sku: producto?.sku || '', precio: producto?.precio ?? 0, costo: producto?.costo ?? 0,
     stock: producto?.stock ?? 0, stock_minimo: producto?.stock_minimo ?? 2, activo: producto?.activo ?? true,
+    en_linea: producto?.en_linea ?? true, descripcion: producto?.descripcion || '',
   });
   const [entrada, setEntrada] = useState(0);
   const [error, setError] = useState('');
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    const datos = { ...f, negocio_id: negocio.id, nombre: f.nombre.trim(), sku: f.sku.trim() || null, stock: f.stock + entrada };
+    const datos = { ...f, negocio_id: negocio.id, nombre: f.nombre.trim(), sku: f.sku.trim() || null, descripcion: f.descripcion.trim() || null, stock: f.stock + entrada };
     const { error } = producto
       ? await supabase.from('productos').update(datos).eq('id', producto.id)
       : await supabase.from('productos').insert(datos);
@@ -86,6 +87,12 @@ function FormProducto({ producto, onCerrar, onGuardado }: { producto: Producto |
         </div>
         <Campo etiqueta="Código / SKU"><input value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} /></Campo>
         <label className="check"><input type="checkbox" checked={f.activo} onChange={(e) => setF({ ...f, activo: e.target.checked })} /> Activo</label>
+        <label className="check"><input type="checkbox" checked={f.en_linea} onChange={(e) => setF({ ...f, en_linea: e.target.checked })} /> Vender en la página de reservas</label>
+        {f.en_linea && (
+          <Campo etiqueta="Descripción para tus clientes (opcional)">
+            <input value={f.descripcion} onChange={(e) => setF({ ...f, descripcion: e.target.value })} maxLength={200} placeholder="Ej. Fijación fuerte, 100 g" />
+          </Campo>
+        )}
         <Aviso>{error}</Aviso>
         <div className="acciones">
           <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useNegocio } from '../lib/sesion';
-import type { Cita, Producto } from '../lib/tipos';
+import type { Cita, CitaProducto, Producto } from '../lib/tipos';
 import { dinero, fechaLarga, hora } from '../lib/formato';
 import { Aviso, Cabecera, Campo } from '../components/ui';
 import ClienteBuscador, { asegurarCliente, type ClienteElegido } from '../components/ClienteBuscador';
@@ -44,16 +44,25 @@ export default function Cobrar() {
 
   useEffect(() => {
     if (!citaId) { setCita(null); return; }
-    supabase.from('citas').select('*, clientes(nombre, telefono)').eq('id', citaId).maybeSingle().then(({ data }) => {
+    Promise.all([
+      supabase.from('citas').select('*, clientes(nombre, telefono)').eq('id', citaId).maybeSingle(),
+      supabase.from('cita_productos').select('*').eq('cita_id', citaId),
+    ]).then(([{ data }, { data: compras }]) => {
       const c = data as Cita | null;
       setCita(c);
       if (!c) return;
       setCliente({ id: c.cliente_id, nombre: c.clientes?.nombre || c.cliente_nombre || '', telefono: c.clientes?.telefono || '' });
       if (c.barbero_id) setBarberoId(c.barbero_id);
       const s = servicios.find((x) => x.id === c.servicio_id);
+      const ps: Partida[] = [];
       if (s) {
-        setPartidas([{ clave: crypto.randomUUID(), tipo: 'servicio', id: s.id, nombre: s.nombre, precio: Number(c.precio ?? s.precio), cantidad: 1, barberoId: c.barbero_id || '' }]);
+        ps.push({ clave: crypto.randomUUID(), tipo: 'servicio', id: s.id, nombre: s.nombre, precio: Number(c.precio ?? s.precio), cantidad: 1, barberoId: c.barbero_id || '' });
       }
+      // Productos que el cliente compró al reservar: se entregan y salen del inventario con este cobro.
+      for (const cp of (compras as CitaProducto[]) || []) {
+        if (cp.producto_id) ps.push({ clave: crypto.randomUUID(), tipo: 'producto', id: cp.producto_id, nombre: cp.nombre, precio: Number(cp.precio_unit), cantidad: cp.cantidad, barberoId: c.barbero_id || '' });
+      }
+      setPartidas(ps);
     });
   }, [citaId, servicios]);
 

@@ -2,8 +2,8 @@
 //
 // Una sola función con varias acciones (verify_jwt = false: Mercado Pago no manda JWT y la app
 // usa la llave publicable; cada acción valida lo suyo):
-//   POST {accion:"crear", slug, servicio, barbero, inicio, nombre, telefono, notas}
-//        Aparta el horario y devuelve la liga de pago de Mercado Pago.
+//   POST {accion:"crear", slug, servicio, barbero, inicio, nombre, telefono, notas, productos:[{id, cantidad}]}
+//        Aparta el horario (y los productos) y devuelve la liga de pago de Mercado Pago.
 //   POST {accion:"reintentar", cita}
 //        Nueva liga de pago para un apartado que sigue vigente (tarjeta rechazada, ventana cerrada).
 //   POST {accion:"verificar", cita}
@@ -84,6 +84,7 @@ async function procesarPago(token: string, negocioId: string, pago: Pago) {
 
 type Apartado = {
   id: string; servicio: string; servicio_id: string; monto: number; expira: string; access_token: string;
+  productos?: { nombre: string; cantidad: number }[];
   negocio: { id: string; nombre: string; slug: string; moneda: string };
 };
 
@@ -92,9 +93,11 @@ async function ligaDePago(req: Request, r: Apartado, nombre: string) {
   const origen = req.headers.get('origin') || '';
   const base = ORIGENES.includes(origen) ? origen : APP_URL;
   const regreso = `${base}/r/${r.negocio.slug}/pago/${r.id}`;
+  const piezas = (r.productos || []).reduce((a, p) => a + Number(p.cantidad), 0);
+  const concepto = piezas ? `${r.servicio} + ${piezas} producto${piezas > 1 ? 's' : ''}` : r.servicio;
   const preferencia = {
     items: [{
-      id: r.servicio_id, title: `${r.servicio} · ${r.negocio.nombre}`.slice(0, 250),
+      id: r.servicio_id, title: `${concepto} · ${r.negocio.nombre}`.slice(0, 250),
       quantity: 1, unit_price: Number(r.monto), currency_id: r.negocio.moneda,
     }],
     payer: { name: nombre.slice(0, 80) },
@@ -123,9 +126,14 @@ async function ligaDePago(req: Request, r: Apartado, nombre: string) {
 }
 
 async function crear(req: Request, b: Record<string, unknown>) {
-  const r = await rpc<Apartado>('pago_reservar', {
+  const productos = (Array.isArray(b.productos) ? b.productos : [])
+    .slice(0, 20)
+    .map((p: { id?: unknown; cantidad?: unknown }) => ({ id: String(p?.id || ''), cantidad: Math.trunc(Number(p?.cantidad) || 0) }))
+    .filter((p) => /^[0-9a-f-]{36}$/i.test(p.id) && p.cantidad > 0);
+  const r = await rpc<Apartado>('pago_apartar', {
     p_slug: b.slug, p_servicio: b.servicio, p_barbero: b.barbero || null, p_inicio: b.inicio,
     p_nombre: b.nombre, p_telefono: b.telefono, p_notas: b.notas || null, p_minutos: MINUTOS_APARTADO,
+    p_productos: productos,
   });
   return ligaDePago(req, r, String(b.nombre || ''));
 }
