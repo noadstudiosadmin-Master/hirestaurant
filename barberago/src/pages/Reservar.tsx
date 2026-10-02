@@ -10,7 +10,8 @@ interface Info {
   servicios: { id: string; nombre: string; descripcion: string | null; categoria: string | null; duracion_min: number; precio: number }[];
   barberos: { id: string; nombre: string; foto_url: string | null; color: string }[];
 }
-type Hueco = { inicio: string; barbero_id: string };
+/** Hora de inicio posible; las ocupadas vienen con libre = false y sin barbero. */
+type Hueco = { inicio: string; barbero_id: string | null; libre?: boolean };
 type Confirmacion = { id: string; inicio: string; servicio: string; barbero: string; precio: number };
 
 /** Página pública: el cliente reserva sin crear cuenta. */
@@ -180,16 +181,25 @@ export default function Reservar() {
               </button>
             ))}
           </div>
-          {dia && (huecos === null ? <Cargando /> : huecos.length === 0 ? (
+          {dia && (huecos === null ? <Cargando /> : !huecos.some((h) => h.libre !== false) ? (
             <p className="tenue">No hay horarios libres ese día. Prueba otro.</p>
           ) : (
-            <div className="horas">
-              {huecos.map((h) => (
-                <button key={h.inicio} className={`hora ${hueco?.inicio === h.inicio ? 'elegida' : ''}`} onClick={() => setHueco(h)}>
-                  {horaEnTz(h.inicio)}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="horas">
+                {huecos.map((h) => h.libre === false ? (
+                  <button key={h.inicio} type="button" className="hora ocupada" disabled aria-label={`${horaEnTz(h.inicio)} ocupado`} title="Ocupado">
+                    {horaEnTz(h.inicio)}
+                  </button>
+                ) : (
+                  <button key={h.inicio} className={`hora ${hueco?.inicio === h.inicio ? 'elegida' : ''}`} onClick={() => setHueco(h)}>
+                    {horaEnTz(h.inicio)}
+                  </button>
+                ))}
+              </div>
+              {huecos.some((h) => h.libre === false) && (
+                <p className="tenue pequeno leyenda-horas"><span className="muestra-ocupada" aria-hidden /> Ocupado</p>
+              )}
+            </>
           ))}
         </section>
       )}

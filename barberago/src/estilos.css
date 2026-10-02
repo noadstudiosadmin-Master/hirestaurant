@@ -318,6 +318,13 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .dia small { color: var(--texto-2); font-size: .75rem; text-transform: capitalize; }
 .horas { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .4rem; }
 .hora { padding: .6rem 0; border-radius: 10px; border: 1px solid var(--borde); background: var(--superficie); cursor: pointer; font-variant-numeric: tabular-nums; }
+.hora.ocupada, .muestra-ocupada {
+  background: color-mix(in srgb, var(--peligro) 14%, var(--superficie)); border-color: color-mix(in srgb, var(--peligro) 55%, var(--borde));
+  color: var(--peligro);
+}
+.hora.ocupada { cursor: not-allowed; text-decoration: line-through; opacity: 1; }
+.leyenda-horas { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; }
+.muestra-ocupada { display: inline-block; width: 14px; height: 14px; border: 1px solid; border-radius: 4px; }
 .palomita { width: 64px; height: 64px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 2rem; display: grid; place-items: center; margin: 0 auto; }
 .grande-texto { font-size: 1.3rem; font-weight: 700; }
 .publica-pie { margin-top: 2.5rem; text-align: center; }
