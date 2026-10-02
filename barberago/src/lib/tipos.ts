@@ -28,7 +28,15 @@ export interface Negocio {
   anticipacion_min: number;
   reserva_online: boolean;
   creado_por: string | null;
+  pago_en_linea: ModoPago;
+  anticipo_pct: number;
+  pago_cuenta: string | null;
+  pago_prueba: boolean;
 }
+
+/** Cobro al reservar en línea: sin pago, el cliente elige, o pago obligatorio. */
+export type ModoPago = 'desactivado' | 'opcional' | 'obligatorio';
+export type EstadoPago = 'pendiente' | 'pagado' | 'expirado' | 'fallido' | 'reembolsar' | 'reembolsado';
 
 export interface Miembro {
   negocio_id: string;
@@ -117,6 +125,9 @@ export interface Cita {
   origen: 'agenda' | 'en_linea' | 'sin_cita';
   precio: number | null;
   notas: string | null;
+  pago_estado: EstadoPago | null;
+  pago_monto: number | null;
+  pago_expira: string | null;
   clientes?: { nombre: string; telefono: string | null } | null;
 }
 
@@ -140,6 +151,7 @@ export interface Venta {
   propina: number;
   total: number;
   metodo_pago: 'efectivo' | 'tarjeta' | 'transferencia';
+  pagado_en_linea: number;
   estado: 'pagada' | 'anulada';
   notas: string | null;
   clientes?: { nombre: string } | null;
@@ -151,4 +163,9 @@ export interface Suscripcion {
   negocios_max: number;
   vence: string;
   origen: string;
+}
+
+/** Apartado en línea que venció sin pagarse: ya no ocupa el horario. */
+export function apartadoVencido(c: Pick<Cita, 'pago_estado' | 'pago_expira'>): boolean {
+  return c.pago_estado === 'pendiente' && !!c.pago_expira && new Date(c.pago_expira) < new Date();
 }

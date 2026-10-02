@@ -359,3 +359,12 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
   .tarjeta { box-shadow: none; border: 0; }
   body { background: #fff; color: #000; }
 }
+
+/* Pagos en línea */
+.pago-resumen { background: var(--superficie-2); border-radius: 10px; padding: .7rem .9rem; }
+.pago-resumen p { margin: 0 0 .25rem; }
+.pasos-lista { margin: 0; padding-left: 1.2rem; display: grid; gap: .3rem; }
+.insignia-prueba { margin-left: .5rem; background: color-mix(in srgb, var(--alerta) 16%, var(--superficie)); color: var(--alerta); }
+.insignia-pago { background: color-mix(in srgb, var(--ok) 14%, var(--superficie)); color: var(--ok); }
+.cita .etiqueta-pago { font-size: .68rem; color: var(--ok); font-weight: 600; }
+.cita.apartado { opacity: .7; border-style: dashed; }

@@ -15,6 +15,7 @@ import Equipo from './pages/Equipo';
 import Ajustes from './pages/Ajustes';
 import Reservar from './pages/Reservar';
 import CancelarReserva from './pages/CancelarReserva';
+import PagoReserva from './pages/PagoReserva';
 
 function Interno() {
   const { cargando, session, negocio, miembro, puede } = useSesion();
@@ -49,6 +50,7 @@ export default function App() {
         {/* Páginas públicas para clientes: no requieren cuenta. */}
         <Route path="/r/:slug" element={<Reservar />} />
         <Route path="/r/:slug/cancelar/:cita" element={<CancelarReserva />} />
+        <Route path="/r/:slug/pago/:cita" element={<PagoReserva />} />
         <Route path="/*" element={<SesionProvider><Interno /></SesionProvider>} />
       </Routes>
     </BrowserRouter>

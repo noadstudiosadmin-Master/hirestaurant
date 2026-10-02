@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { useNavigate } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useNegocio } from '../lib/sesion';
-import { ESTADOS, type Barbero, type Bloqueo, type Cita, type EstadoCita } from '../lib/tipos';
+import { ESTADOS, apartadoVencido, type Barbero, type Bloqueo, type Cita, type EstadoCita } from '../lib/tipos';
 import { deIsoDia, diaIso, dinero, fechaLarga, hora, isoDia, minutos, sumarDias, whatsapp } from '../lib/formato';
 import { Aviso, Campo, Modal } from '../components/ui';
 import ClienteBuscador, { asegurarCliente, type ClienteElegido } from '../components/ClienteBuscador';
@@ -43,7 +43,8 @@ export default function Agenda() {
       supabase.from('bloqueos').select('*').eq('negocio_id', negocio.id)
         .lt('inicio', hasta.toISOString()).gt('fin', desde.toISOString()),
     ]);
-    setCitas((c.data as Cita[]) || []);
+    // Los apartados en línea que vencieron sin pagarse ya no ocupan lugar.
+    setCitas(((c.data as Cita[]) || []).filter((x) => !apartadoVencido(x)));
     setFila((f.data as Cita[]) || []);
     setBloqueos((b.data as Bloqueo[]) || []);
   }, [dia, negocio.id]);
@@ -197,12 +198,14 @@ export default function Agenda() {
                     const i = minDe(c.inicio), f = minDe(c.fin);
                     const serv = servicios.find((s) => s.id === c.servicio_id);
                     return (
-                      <button key={c.id} className={`cita estado-${c.estado}`}
+                      <button key={c.id} className={`cita estado-${c.estado}${c.pago_estado === 'pendiente' ? ' apartado' : ''}`}
                         style={{ top: (i - minIni) * PX_MIN, height: Math.max((f - i) * PX_MIN - 2, 22), ['--color' as string]: b.color }}
                         onClick={() => setDetalle(c)}>
                         <strong>{c.clientes?.nombre || c.cliente_nombre || 'Cliente'}</strong>
                         <span>{hora(c.inicio)} · {serv?.nombre || 'Servicio'}</span>
-                        {c.origen === 'en_linea' && <span className="etiqueta">en línea</span>}
+                        {c.pago_estado === 'pagado' ? <span className="etiqueta-pago">pagó en línea</span>
+                          : c.pago_estado === 'pendiente' ? <span className="etiqueta">esperando pago</span>
+                          : c.origen === 'en_linea' && <span className="etiqueta">en línea</span>}
                       </button>
                     );
                   })}
@@ -445,6 +448,9 @@ function DetalleCita({ cita, onCerrar, onCambio, onEditar, onCobrar }: {
       <dl className="datos">
         <dt>Estado</dt><dd><span className={`insignia estado-${cita.estado}`}>{ESTADOS[cita.estado]}</span>{cita.origen === 'en_linea' && ' · reservó en línea'}</dd>
         <dt>Servicio</dt><dd>{serv?.nombre || '—'} {cita.precio != null && `· ${dinero(cita.precio, negocio.moneda)}`}</dd>
+        {cita.pago_estado === 'pagado' && <><dt>Pago</dt><dd><span className="insignia insignia-pago">Pagó {dinero(cita.pago_monto, negocio.moneda)} en línea</span></dd></>}
+        {cita.pago_estado === 'pendiente' && <><dt>Pago</dt><dd>Apartado mientras paga en Mercado Pago (hasta las {hora(cita.pago_expira || cita.inicio)})</dd></>}
+        {(cita.pago_estado === 'reembolsar' || cita.pago_estado === 'reembolsado') && <><dt>Pago</dt><dd>Pago devuelto al cliente</dd></>}
         {cita.estado !== 'en_espera' && <><dt>Horario</dt><dd>{fechaLarga(cita.inicio)}, {hora(cita.inicio)} a {hora(cita.fin)}</dd></>}
         <dt>Barbero</dt><dd>{barb?.nombre || 'Cualquiera'}</dd>
         {tel && <><dt>Teléfono</dt><dd><a href={`tel:${tel}`}>{tel}</a></dd></>}
@@ -468,7 +474,9 @@ function DetalleCita({ cita, onCerrar, onCambio, onEditar, onCobrar }: {
               <button className="btn btn-primario" onClick={() => cambiar('en_curso')}>Llegó</button>
               <button className="btn" onClick={() => cambiar('no_asistio')}>No llegó</button>
               <button className="btn" onClick={onEditar}>Mover / editar</button>
-              <button className="btn btn-peligro" onClick={() => confirm('¿Cancelar la cita?') && cambiar('cancelada')}>Cancelar cita</button>
+              <button className="btn btn-peligro" onClick={() => confirm(cita.pago_estado === 'pagado'
+                ? `El cliente ya pagó ${dinero(cita.pago_monto, negocio.moneda)} en línea. Si cancelas, devuélvele el dinero desde tu cuenta de Mercado Pago. ¿Cancelar la cita?`
+                : '¿Cancelar la cita?') && cambiar('cancelada')}>Cancelar cita</button>
             </>
           )}
           {cita.estado === 'en_curso' && <button className="btn" onClick={onEditar}>Editar</button>}

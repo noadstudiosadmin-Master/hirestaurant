@@ -31,7 +31,10 @@ export default function Ventas() {
   }
 
   const pagadas = ventas.filter((v) => v.estado === 'pagada');
-  const suma = (m?: string) => pagadas.filter((v) => !m || v.metodo_pago === m).reduce((a, v) => a + Number(v.total), 0);
+  // Por método cuenta solo lo cobrado en la barbería; lo pagado al reservar va en "En línea".
+  const suma = (m?: string) => pagadas.filter((v) => !m || v.metodo_pago === m)
+    .reduce((a, v) => a + Number(v.total) - (m ? Number(v.pagado_en_linea || 0) : 0), 0);
+  const enLinea = pagadas.reduce((a, v) => a + Number(v.pagado_en_linea || 0), 0);
 
   return (
     <div className="pagina">
@@ -43,6 +46,7 @@ export default function Ventas() {
         <div className="kpi"><span>Efectivo</span><strong>{dinero(suma('efectivo'), negocio.moneda)}</strong></div>
         <div className="kpi"><span>Tarjeta</span><strong>{dinero(suma('tarjeta'), negocio.moneda)}</strong></div>
         <div className="kpi"><span>Transferencia</span><strong>{dinero(suma('transferencia'), negocio.moneda)}</strong></div>
+        {enLinea > 0 && <div className="kpi"><span>En línea</span><strong>{dinero(enLinea, negocio.moneda)}</strong></div>}
         <div className="kpi"><span>Propinas</span><strong>{dinero(pagadas.reduce((a, v) => a + Number(v.propina), 0), negocio.moneda)}</strong></div>
       </div>
       <Aviso>{error}</Aviso>
@@ -58,7 +62,7 @@ export default function Ventas() {
                   <td>{v.clientes?.nombre || '—'}</td>
                   <td className="pequeno">{v.venta_items?.map((i) => `${i.cantidad > 1 ? i.cantidad + '× ' : ''}${i.nombre}`).join(', ')}</td>
                   <td>{barberos.find((b) => b.id === v.barbero_id)?.nombre || '—'}</td>
-                  <td>{v.metodo_pago}</td>
+                  <td>{v.metodo_pago}{Number(v.pagado_en_linea) > 0 && <div className="pequeno tenue">+ {dinero(v.pagado_en_linea, negocio.moneda)} en línea</div>}</td>
                   <td className="num">{dinero(v.total, negocio.moneda)}{v.estado === 'anulada' && <div className="pequeno">anulada</div>}</td>
                   <td>{v.estado === 'pagada' && puede('caja') && <button className="btn-texto" onClick={() => anular(v)}>Anular</button>}</td>
                 </tr>

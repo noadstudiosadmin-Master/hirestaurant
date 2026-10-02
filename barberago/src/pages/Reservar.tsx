@@ -1,12 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { supabase, mensajeError } from '../lib/supabase';
-import type { Horario } from '../lib/tipos';
+import { supabase, mensajeError, llamarPagos } from '../lib/supabase';
+import type { Horario, ModoPago } from '../lib/tipos';
 import { dinero, DIAS } from '../lib/formato';
 import { Aviso, Campo, Cargando } from '../components/ui';
 
 interface Info {
-  negocio: { id: string; nombre: string; slug: string; telefono: string | null; direccion: string | null; logo_url: string | null; zona_horaria: string; moneda: string; horario: Horario };
+  negocio: { id: string; nombre: string; slug: string; telefono: string | null; direccion: string | null; logo_url: string | null; zona_horaria: string; moneda: string; horario: Horario; pago_en_linea: ModoPago; anticipo_pct: number };
   servicios: { id: string; nombre: string; descripcion: string | null; categoria: string | null; duracion_min: number; precio: number }[];
   barberos: { id: string; nombre: string; foto_url: string | null; color: string }[];
 }
@@ -28,6 +28,7 @@ export default function Reservar() {
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [listo, setListo] = useState<Confirmacion | null>(null);
+  const formulario = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     supabase.rpc('reserva_negocio', { p_slug: slug }).then(({ data }) => {
@@ -57,6 +58,8 @@ export default function Reservar() {
   async function reservar(e: FormEvent) {
     e.preventDefault();
     if (!hueco) return;
+    // Con pago obligatorio, Enter en el formulario también lleva a pagar.
+    if (info?.negocio.pago_en_linea === 'obligatorio') return pagar();
     setError(''); setEnviando(true);
     const { data, error } = await supabase.rpc('reservar', {
       p_slug: slug, p_servicio: servicioId, p_barbero: barberoId || null, p_inicio: hueco.inicio,
@@ -70,6 +73,24 @@ export default function Reservar() {
       return;
     }
     setListo(data as Confirmacion);
+  }
+
+  /** Aparta el horario y manda al cliente a pagar a Mercado Pago. */
+  async function pagar() {
+    if (!hueco || !formulario.current?.reportValidity()) return;
+    setError(''); setEnviando(true);
+    try {
+      const r = await llamarPagos<{ url: string }>({
+        accion: 'crear', slug, servicio: servicioId, barbero: barberoId || null, inicio: hueco.inicio,
+        nombre, telefono, notas: notas || null,
+      });
+      window.location.href = r.url;
+    } catch (err) {
+      setEnviando(false);
+      setError(mensajeError(err));
+      setHueco(null);
+      const d = dia; setDia(''); setTimeout(() => setDia(d)); // recarga horarios
+    }
   }
 
   if (info === undefined) return <Cargando />;
@@ -87,6 +108,9 @@ export default function Reservar() {
   const { negocio, servicios, barberos } = info;
   const serv = servicios.find((s) => s.id === servicioId);
   const m = (n: number) => dinero(n, negocio.moneda);
+  const modoPago = negocio.pago_en_linea;
+  const anticipo = serv ? Math.round(serv.precio * negocio.anticipo_pct) / 100 : 0;
+  const cobraEnLinea = modoPago !== 'desactivado' && anticipo > 0;
 
   if (listo) {
     return (
@@ -171,7 +195,7 @@ export default function Reservar() {
       )}
 
       {hueco && serv && (
-        <form className="paso tarjeta formulario" onSubmit={reservar}>
+        <form className="paso tarjeta formulario" onSubmit={reservar} ref={formulario}>
           <h2><span className="num-paso">{barberos.length > 1 ? 4 : 3}</span> Tus datos</h2>
           <p>
             <strong>{serv.nombre}</strong> el {fechaEnTz(hueco.inicio)} a las {horaEnTz(hueco.inicio)}
@@ -180,8 +204,27 @@ export default function Reservar() {
           <Campo etiqueta="Nombre"><input value={nombre} onChange={(e) => setNombre(e.target.value)} required minLength={2} maxLength={80} autoComplete="name" /></Campo>
           <Campo etiqueta="WhatsApp o teléfono"><input value={telefono} onChange={(e) => setTelefono(e.target.value)} required inputMode="tel" autoComplete="tel" placeholder="10 dígitos" /></Campo>
           <Campo etiqueta="Comentario (opcional)"><input value={notas} onChange={(e) => setNotas(e.target.value)} maxLength={300} /></Campo>
+          {cobraEnLinea && (
+            <div className="pago-resumen">
+              {anticipo < serv.precio ? (
+                <p>Para apartar se paga un anticipo de <strong>{m(anticipo)}</strong>; el resto ({m(serv.precio - anticipo)}) en la barbería.</p>
+              ) : <p>Puedes pagar ahora <strong>{m(anticipo)}</strong> con tarjeta o Mercado Pago.</p>}
+              <p className="tenue pequeno">Pago seguro con Mercado Pago. Tu horario queda apartado 20 minutos mientras pagas.</p>
+            </div>
+          )}
           <Aviso>{error}</Aviso>
-          <button className="btn btn-primario ancho grande" disabled={enviando}>Confirmar reserva</button>
+          {cobraEnLinea ? (
+            <>
+              <button type="button" className="btn btn-primario ancho grande" disabled={enviando} onClick={pagar}>
+                {enviando ? 'Abriendo Mercado Pago…' : `Pagar ${m(anticipo)} y reservar`}
+              </button>
+              {modoPago === 'opcional' && (
+                <button className="btn ancho" disabled={enviando}>Reservar y pagar en la barbería</button>
+              )}
+            </>
+          ) : (
+            <button className="btn btn-primario ancho grande" disabled={enviando}>Confirmar reserva</button>
+          )}
         </form>
       )}
       {!hueco && <Aviso>{error}</Aviso>}
