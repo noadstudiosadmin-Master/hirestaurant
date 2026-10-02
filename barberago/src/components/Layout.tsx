@@ -6,6 +6,7 @@ import { fechaCorta } from '../lib/formato';
 const MENU: { a: string; nombre: string; icono: string; permiso: Permiso; movil?: boolean }[] = [
   { a: '/agenda', nombre: 'Agenda', icono: '📅', permiso: 'agenda', movil: true },
   { a: '/cobrar', nombre: 'Cobrar', icono: '💵', permiso: 'cobrar', movil: true },
+  { a: '/pedidos', nombre: 'Pedidos', icono: '🛍️', permiso: 'cobrar' },
   { a: '/clientes', nombre: 'Clientes', icono: '👥', permiso: 'clientes', movil: true },
   { a: '/ventas', nombre: 'Ventas', icono: '🧾', permiso: 'caja' },
   { a: '/reportes', nombre: 'Reportes', icono: '📊', permiso: 'reportes', movil: true },

@@ -4,10 +4,12 @@
 // usa la llave publicable; cada acción valida lo suyo):
 //   POST {accion:"crear", slug, servicio, barbero, inicio, nombre, telefono, notas, productos:[{id, cantidad}]}
 //        Aparta el horario (y los productos) y devuelve la liga de pago de Mercado Pago.
-//   POST {accion:"reintentar", cita}
+//   POST {accion:"pedir", slug, nombre, telefono, notas, productos:[{id, cantidad}]}
+//        Pedido de productos sin cita (se recoge en la sucursal): aparta y devuelve la liga de pago.
+//   POST {accion:"reintentar", cita | pedido}
 //        Nueva liga de pago para un apartado que sigue vigente (tarjeta rechazada, ventana cerrada).
-//   POST {accion:"verificar", cita}
-//        Pregunta a Mercado Pago por los pagos de la cita (respaldo por si el aviso se atrasa).
+//   POST {accion:"verificar", cita | pedido}
+//        Pregunta a Mercado Pago por los pagos (respaldo por si el aviso se atrasa).
 //   POST {accion:"conectar", negocio, access_token}   (con la sesión del dueño)
 //        Valida la llave con Mercado Pago y la guarda del lado del servidor.
 //   POST ?accion=webhook&negocio=<id>
@@ -62,19 +64,27 @@ async function mp(token: string, ruta: string, init: RequestInit = {}) {
 
 type Pago = { id: number; status: string; transaction_amount: number; external_reference: string | null };
 
-/** Registra un pago de Mercado Pago en la cita y devuelve el dinero si ya no corresponde. */
+const UUID = /^[0-9a-f-]{36}$/i;
+/** La referencia del pago es el id de la cita, o "pedido-<id>" para los pedidos de productos. */
+const PREFIJO_PEDIDO = 'pedido-';
+
+/** Registra un pago de Mercado Pago en la cita o pedido y devuelve el dinero si ya no corresponde. */
 async function procesarPago(token: string, negocioId: string, pago: Pago) {
-  if (!pago.external_reference) return 'ignorado';
-  const res = await rpc<string>('pago_registrar', {
-    p_cita: pago.external_reference, p_negocio: negocioId, p_pago_id: String(pago.id),
-    p_estado: pago.status, p_monto: pago.transaction_amount,
-  });
+  const ref = pago.external_reference || '';
+  const esPedido = ref.startsWith(PREFIJO_PEDIDO);
+  const id = esPedido ? ref.slice(PREFIJO_PEDIDO.length) : ref;
+  if (!UUID.test(id)) return 'ignorado';
+  const datos = { p_negocio: negocioId, p_pago_id: String(pago.id), p_estado: pago.status, p_monto: pago.transaction_amount };
+  const res = esPedido
+    ? await rpc<string>('pedido_registrar', { p_pedido: id, ...datos })
+    : await rpc<string>('pago_registrar', { p_cita: id, ...datos });
   if (res === 'reembolsar') {
     const r = await mp(token, `/v1/payments/${pago.id}/refunds`, {
       method: 'POST', body: '{}', headers: { 'X-Idempotency-Key': `reembolso-${pago.id}` },
     });
     if (r.ok || r.status === 400 /* ya reembolsado */) {
-      await rpc('pago_marcar_reembolso', { p_cita: pago.external_reference, p_pago_id: String(pago.id) });
+      if (esPedido) await rpc('pedido_marcar_reembolso', { p_pedido: id, p_pago_id: String(pago.id) });
+      else await rpc('pago_marcar_reembolso', { p_cita: id, p_pago_id: String(pago.id) });
     } else {
       console.error('No se pudo reembolsar', pago.id, r.status, r.datos);
     }
@@ -88,21 +98,53 @@ type Apartado = {
   negocio: { id: string; nombre: string; slug: string; moneda: string };
 };
 
-/** Crea la preferencia de Mercado Pago de un apartado; si falla, suelta el horario. */
-async function ligaDePago(req: Request, r: Apartado, nombre: string) {
+type Pedido = {
+  id: string; numero: number; monto: number; expira: string; piezas: number; access_token: string;
+  negocio: { id: string; nombre: string; slug: string; moneda: string };
+};
+
+/** Lo que cambia entre cobrar una cita y un pedido. */
+type Cobro = {
+  referencia: string; ruta: string; itemId: string; concepto: string; monto: number; expira: string;
+  access_token: string; negocio: { id: string; nombre: string; slug: string; moneda: string };
+  metadata: Record<string, string>; cancelar: () => Promise<unknown>;
+};
+
+function cobroDeCita(r: Apartado): Cobro {
+  const piezas = (r.productos || []).reduce((a, p) => a + Number(p.cantidad), 0);
+  return {
+    referencia: r.id, ruta: `/r/${r.negocio.slug}/pago/${r.id}`, itemId: r.servicio_id,
+    concepto: piezas ? `${r.servicio} + ${piezas} producto${piezas > 1 ? 's' : ''}` : r.servicio,
+    monto: r.monto, expira: r.expira, access_token: r.access_token, negocio: r.negocio,
+    metadata: { cita_id: r.id, negocio_id: r.negocio.id },
+    cancelar: () => rpc('pago_cancelar_apartado', { p_cita: r.id }),
+  };
+}
+
+function cobroDePedido(r: Pedido): Cobro {
+  const piezas = Number(r.piezas) || 1;
+  return {
+    referencia: PREFIJO_PEDIDO + r.id, ruta: `/r/${r.negocio.slug}/pedido/${r.id}`, itemId: `pedido-${r.numero}`,
+    concepto: `Pedido #${r.numero} (${piezas} producto${piezas > 1 ? 's' : ''}, recoger en sucursal)`,
+    monto: r.monto, expira: r.expira, access_token: r.access_token, negocio: r.negocio,
+    metadata: { pedido_id: r.id, negocio_id: r.negocio.id },
+    cancelar: () => rpc('pedido_cancelar_apartado', { p_pedido: r.id }),
+  };
+}
+
+/** Crea la preferencia de Mercado Pago; si falla, suelta lo apartado. */
+async function ligaDePago(req: Request, r: Cobro, nombre: string) {
   const origen = req.headers.get('origin') || '';
   const base = ORIGENES.includes(origen) ? origen : APP_URL;
-  const regreso = `${base}/r/${r.negocio.slug}/pago/${r.id}`;
-  const piezas = (r.productos || []).reduce((a, p) => a + Number(p.cantidad), 0);
-  const concepto = piezas ? `${r.servicio} + ${piezas} producto${piezas > 1 ? 's' : ''}` : r.servicio;
+  const regreso = `${base}${r.ruta}`;
   const preferencia = {
     items: [{
-      id: r.servicio_id, title: `${concepto} · ${r.negocio.nombre}`.slice(0, 250),
+      id: r.itemId, title: `${r.concepto} · ${r.negocio.nombre}`.slice(0, 250),
       quantity: 1, unit_price: Number(r.monto), currency_id: r.negocio.moneda,
     }],
     payer: { name: nombre.slice(0, 80) },
-    external_reference: r.id,
-    metadata: { cita_id: r.id, negocio_id: r.negocio.id },
+    external_reference: r.referencia,
+    metadata: r.metadata,
     notification_url: `${SUPABASE_URL}/functions/v1/pagos?accion=webhook&negocio=${r.negocio.id}`,
     back_urls: { success: regreso, failure: regreso, pending: regreso },
     ...(base.startsWith('https://') ? { auto_return: 'approved' } : {}),
@@ -115,44 +157,67 @@ async function ligaDePago(req: Request, r: Apartado, nombre: string) {
     statement_descriptor: String(r.negocio.nombre).replace(/[^A-Za-z0-9 ]/g, '').slice(0, 13) || 'BARBERAGO',
   };
   const p = await mp(r.access_token, '/checkout/preferences', {
-    method: 'POST', body: JSON.stringify(preferencia), headers: { 'X-Idempotency-Key': `pref-${r.id}-${Date.now()}` },
+    method: 'POST', body: JSON.stringify(preferencia), headers: { 'X-Idempotency-Key': `pref-${r.referencia}-${Date.now()}` },
   });
   if (!p.ok || !p.datos?.init_point) {
     console.error('Mercado Pago rechazó la preferencia', p.status, p.datos);
-    await rpc('pago_cancelar_apartado', { p_cita: r.id });
+    await r.cancelar();
     throw new ErrorVisible('No se pudo iniciar el pago. Intenta de nuevo o avisa a la barbería.');
   }
-  return json({ cita: r.id, url: p.datos.init_point, monto: r.monto, expira: r.expira });
+  return json({ id: r.referencia.replace(PREFIJO_PEDIDO, ''), url: p.datos.init_point, monto: r.monto, expira: r.expira });
+}
+
+function leerProductos(b: Record<string, unknown>) {
+  return (Array.isArray(b.productos) ? b.productos : [])
+    .slice(0, 20)
+    .map((p: { id?: unknown; cantidad?: unknown }) => ({ id: String(p?.id || ''), cantidad: Math.trunc(Number(p?.cantidad) || 0) }))
+    .filter((p) => UUID.test(p.id) && p.cantidad > 0);
 }
 
 async function crear(req: Request, b: Record<string, unknown>) {
-  const productos = (Array.isArray(b.productos) ? b.productos : [])
-    .slice(0, 20)
-    .map((p: { id?: unknown; cantidad?: unknown }) => ({ id: String(p?.id || ''), cantidad: Math.trunc(Number(p?.cantidad) || 0) }))
-    .filter((p) => /^[0-9a-f-]{36}$/i.test(p.id) && p.cantidad > 0);
   const r = await rpc<Apartado>('pago_apartar', {
     p_slug: b.slug, p_servicio: b.servicio, p_barbero: b.barbero || null, p_inicio: b.inicio,
     p_nombre: b.nombre, p_telefono: b.telefono, p_notas: b.notas || null, p_minutos: MINUTOS_APARTADO,
-    p_productos: productos,
+    p_productos: leerProductos(b),
   });
-  return ligaDePago(req, r, String(b.nombre || ''));
+  return ligaDePago(req, cobroDeCita(r), String(b.nombre || ''));
+}
+
+async function pedir(req: Request, b: Record<string, unknown>) {
+  const productos = leerProductos(b);
+  if (!productos.length) throw new ErrorVisible('Elige al menos un producto');
+  const r = await rpc<Pedido>('pedido_apartar', {
+    p_slug: b.slug, p_nombre: b.nombre, p_telefono: b.telefono, p_productos: productos,
+    p_notas: b.notas || null, p_minutos: MINUTOS_APARTADO,
+  });
+  return ligaDePago(req, cobroDePedido(r), String(b.nombre || ''));
 }
 
 async function reintentar(req: Request, b: Record<string, unknown>) {
+  if (b.pedido) {
+    const pedido = String(b.pedido);
+    if (!UUID.test(pedido)) throw new ErrorVisible('Pedido no válido');
+    const r = await rpc<Pedido & { nombre: string }>('pedido_reintentar', { p_pedido: pedido });
+    return ligaDePago(req, cobroDePedido(r), r.nombre || '');
+  }
   const cita = String(b.cita || '');
-  if (!/^[0-9a-f-]{36}$/i.test(cita)) throw new ErrorVisible('Cita no válida');
+  if (!UUID.test(cita)) throw new ErrorVisible('Cita no válida');
   const r = await rpc<Apartado & { nombre: string }>('pago_reintentar', { p_cita: cita });
-  return ligaDePago(req, r, r.nombre || '');
+  return ligaDePago(req, cobroDeCita(r), r.nombre || '');
 }
 
 async function verificar(b: Record<string, unknown>) {
-  const cita = String(b.cita || '');
-  if (!/^[0-9a-f-]{36}$/i.test(cita)) throw new ErrorVisible('Cita no válida');
-  const cuenta = await rpc<{ negocio_id: string; access_token: string } | null>('pago_token', { p_cita: cita });
-  if (!cuenta) return json({ ok: true });
-  const r = await mp(cuenta.access_token, `/v1/payments/search?external_reference=${cita}&sort=date_created&criteria=desc`);
+  const esPedido = !!b.pedido;
+  const id = String((esPedido ? b.pedido : b.cita) || '');
+  if (!UUID.test(id)) throw new ErrorVisible(esPedido ? 'Pedido no válido' : 'Cita no válida');
+  const cuenta = esPedido
+    ? await rpc<{ negocio_id: string; access_token: string } | null>('pedido_token', { p_pedido: id })
+    : await rpc<{ negocio_id: string; access_token: string } | null>('pago_token', { p_cita: id });
+  if (!cuenta?.access_token) return json({ ok: true });
+  const ref = esPedido ? PREFIJO_PEDIDO + id : id;
+  const r = await mp(cuenta.access_token, `/v1/payments/search?external_reference=${ref}&sort=date_created&criteria=desc`);
   for (const pago of (r.datos?.results || []) as Pago[]) {
-    if (pago.external_reference === cita && pago.status === 'approved') await procesarPago(cuenta.access_token, cuenta.negocio_id, pago);
+    if (pago.external_reference === ref && pago.status === 'approved') await procesarPago(cuenta.access_token, cuenta.negocio_id, pago);
   }
   return json({ ok: true });
 }
@@ -200,6 +265,7 @@ export async function manejar(req: Request): Promise<Response> {
     const b = await req.json().catch(() => ({}));
     switch (b.accion) {
       case 'crear': return await crear(req, b);
+      case 'pedir': return await pedir(req, b);
       case 'reintentar': return await reintentar(req, b);
       case 'verificar': return await verificar(b);
       case 'conectar': return await conectar(req, b);

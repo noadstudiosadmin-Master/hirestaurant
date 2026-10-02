@@ -91,6 +91,23 @@ export interface Producto {
   descripcion: string | null;
 }
 
+/** Pedido de productos pagado en línea para recoger en la sucursal (sin cita). */
+export interface Pedido {
+  id: string;
+  negocio_id: string;
+  numero: number;
+  cliente_id: string | null;
+  cliente_nombre: string;
+  telefono: string;
+  notas: string | null;
+  estado: 'pendiente' | 'pagado' | 'entregado' | 'cancelado' | 'reembolsar' | 'reembolsado';
+  total: number;
+  pago_fecha: string | null;
+  entregado_en: string | null;
+  created_at: string;
+  pedido_productos?: { nombre: string; cantidad: number; precio_unit: number }[];
+}
+
 /** Producto que el cliente compró al reservar en línea; se entrega en la cita. */
 export interface CitaProducto {
   id: string;

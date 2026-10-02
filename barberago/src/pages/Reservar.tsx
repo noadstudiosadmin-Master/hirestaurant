@@ -4,13 +4,14 @@ import { supabase, mensajeError, llamarPagos } from '../lib/supabase';
 import type { Horario, ModoPago } from '../lib/tipos';
 import { dinero, DIAS } from '../lib/formato';
 import { Aviso, Campo, Cargando } from '../components/ui';
+import ProductosTienda, { lineasDelCarrito, type Carrito, type ProductoEnLinea } from '../components/ProductosTienda';
 
 interface Info {
   negocio: { id: string; nombre: string; slug: string; telefono: string | null; direccion: string | null; logo_url: string | null; zona_horaria: string; moneda: string; horario: Horario; pago_en_linea: ModoPago; anticipo_pct: number };
   servicios: { id: string; nombre: string; descripcion: string | null; categoria: string | null; duracion_min: number; precio: number }[];
   barberos: { id: string; nombre: string; foto_url: string | null; color: string }[];
   /** Productos que se pueden comprar con la reserva (solo si la barbería cobra en línea). */
-  productos?: { id: string; nombre: string; descripcion: string | null; precio: number; disponible: number }[];
+  productos?: ProductoEnLinea[];
 }
 /** Hora de inicio posible; las ocupadas vienen con libre = false y sin barbero. */
 type Hueco = { inicio: string; barbero_id: string | null; libre?: boolean };
@@ -31,7 +32,7 @@ export default function Reservar() {
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [listo, setListo] = useState<Confirmacion | null>(null);
-  const [carrito, setCarrito] = useState<Record<string, number>>({});
+  const [carrito, setCarrito] = useState<Carrito>({});
   const formulario = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
@@ -87,7 +88,7 @@ export default function Reservar() {
       const r = await llamarPagos<{ url: string }>({
         accion: 'crear', slug, servicio: servicioId, barbero: barberoId || null, inicio: hueco.inicio,
         nombre, telefono, notas: notas || null,
-        productos: Object.entries(carrito).filter(([, n]) => n > 0).map(([id, cantidad]) => ({ id, cantidad })),
+        productos: lineasDelCarrito(carrito),
       });
       window.location.href = r.url;
     } catch (err) {
@@ -148,6 +149,13 @@ export default function Reservar() {
           {negocio.direccion && <p className="tenue pequeno">{negocio.direccion}</p>}
         </div>
       </header>
+      {(info.productos || []).length > 0 && modoPago !== 'desactivado' && (
+        <Link className="aviso-tienda" to={`/r/${negocio.slug}/productos`}>
+          <span aria-hidden>🛍️</span>
+          <span className="crece"><strong>¿Solo quieres productos?</strong><br /><span className="tenue pequeno">Cómpralos sin reservar y recógelos en la sucursal.</span></span>
+          <span aria-hidden>›</span>
+        </Link>
+      )}
 
       <section className="paso">
         <h2><span className="num-paso">1</span> Elige tu servicio</h2>
@@ -227,26 +235,7 @@ export default function Reservar() {
             <div className="tienda">
               <h3>¿Quieres llevar algo más?</h3>
               <p className="tenue pequeno">Págalo ahora y te lo entregan en tu cita.</p>
-              {productos.map((p) => {
-                const n = carrito[p.id] || 0;
-                return (
-                  <div key={p.id} className={`producto-tienda ${n ? 'elegida' : ''}`}>
-                    <div className="crece">
-                      <strong>{p.nombre}</strong>
-                      <div className="tenue pequeno">{m(p.precio)}{p.descripcion && ` · ${p.descripcion}`}</div>
-                    </div>
-                    {n === 0 ? (
-                      <button type="button" className="btn" onClick={() => cambiarCantidad(p.id, 1)}>Agregar</button>
-                    ) : (
-                      <div className="contador" role="group" aria-label={`Cantidad de ${p.nombre}`}>
-                        <button type="button" className="btn-icono" aria-label="Quitar uno" onClick={() => cambiarCantidad(p.id, n - 1)}>−</button>
-                        <span aria-live="polite">{n}</span>
-                        <button type="button" className="btn-icono" aria-label="Agregar uno" disabled={n >= p.disponible} onClick={() => cambiarCantidad(p.id, n + 1)}>+</button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              <ProductosTienda productos={productos} carrito={carrito} onCambiar={cambiarCantidad} moneda={negocio.moneda} />
             </div>
           )}
           {cobraEnLinea && (
