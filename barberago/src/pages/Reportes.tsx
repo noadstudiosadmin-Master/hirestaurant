@@ -10,7 +10,7 @@ interface Reporte {
   por_dia: { dia: string; total: number }[];
   por_barbero: { barbero_id: string; nombre: string; servicios: number; productos: number; comision: number; propinas: number; atenciones: number }[];
   top_servicios: { nombre: string; cantidad: number; importe: number }[];
-  citas: { total: number; completadas: number; canceladas: number; no_asistio: number; en_linea: number };
+  citas: { total: number; completadas: number; canceladas: number; no_asistio: number; en_linea: number; pagadas_en_linea?: number; anticipos?: number };
 }
 
 const PERIODOS = [
@@ -68,7 +68,7 @@ export default function Reportes() {
             <div className="kpi"><span>Productos</span><strong>{m(r.productos)}</strong></div>
             <div className="kpi"><span>Propinas</span><strong>{m(r.propinas)}</strong></div>
             <div className="kpi"><span>Citas</span><strong>{r.citas.total}</strong>
-              <small>{r.citas.en_linea} en línea · {r.citas.no_asistio} no llegaron</small></div>
+              <small>{r.citas.en_linea} en línea{r.citas.pagadas_en_linea ? ` (${r.citas.pagadas_en_linea} pagadas)` : ''} · {r.citas.no_asistio} no llegaron</small></div>
           </div>
 
           {r.por_dia.length > 1 && (
@@ -124,6 +124,7 @@ export default function Reportes() {
               <table className="tabla">
                 <tbody>
                   {['efectivo', 'tarjeta', 'transferencia'].map((k) => <tr key={k}><td>{k}</td><td className="num">{m(r.por_metodo[k] || 0)}</td></tr>)}
+                  {(r.por_metodo.en_linea || 0) > 0 && <tr><td>en línea (al reservar)</td><td className="num">{m(r.por_metodo.en_linea)}</td></tr>}
                   {r.descuentos > 0 && <tr><td>Descuentos dados</td><td className="num">{m(r.descuentos)}</td></tr>}
                 </tbody>
               </table>

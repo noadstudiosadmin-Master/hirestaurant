@@ -1,16 +1,20 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { supabase, mensajeError } from '../lib/supabase';
-import type { Horario } from '../lib/tipos';
+import { supabase, mensajeError, llamarPagos } from '../lib/supabase';
+import type { Horario, ModoPago } from '../lib/tipos';
 import { dinero, DIAS } from '../lib/formato';
 import { Aviso, Campo, Cargando } from '../components/ui';
+import ProductosTienda, { lineasDelCarrito, type Carrito, type ProductoEnLinea } from '../components/ProductosTienda';
 
 interface Info {
-  negocio: { id: string; nombre: string; slug: string; telefono: string | null; direccion: string | null; logo_url: string | null; zona_horaria: string; moneda: string; horario: Horario };
+  negocio: { id: string; nombre: string; slug: string; telefono: string | null; direccion: string | null; logo_url: string | null; zona_horaria: string; moneda: string; horario: Horario; pago_en_linea: ModoPago; anticipo_pct: number };
   servicios: { id: string; nombre: string; descripcion: string | null; categoria: string | null; duracion_min: number; precio: number }[];
   barberos: { id: string; nombre: string; foto_url: string | null; color: string }[];
+  /** Productos que se pueden comprar con la reserva (solo si la barbería cobra en línea). */
+  productos?: ProductoEnLinea[];
 }
-type Hueco = { inicio: string; barbero_id: string };
+/** Hora de inicio posible; las ocupadas vienen con libre = false y sin barbero. */
+type Hueco = { inicio: string; barbero_id: string | null; libre?: boolean };
 type Confirmacion = { id: string; inicio: string; servicio: string; barbero: string; precio: number };
 
 /** Página pública: el cliente reserva sin crear cuenta. */
@@ -28,6 +32,8 @@ export default function Reservar() {
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [listo, setListo] = useState<Confirmacion | null>(null);
+  const [carrito, setCarrito] = useState<Carrito>({});
+  const formulario = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     supabase.rpc('reserva_negocio', { p_slug: slug }).then(({ data }) => {
@@ -57,6 +63,8 @@ export default function Reservar() {
   async function reservar(e: FormEvent) {
     e.preventDefault();
     if (!hueco) return;
+    // Con pago obligatorio, Enter en el formulario también lleva a pagar.
+    if (info?.negocio.pago_en_linea === 'obligatorio') return pagar();
     setError(''); setEnviando(true);
     const { data, error } = await supabase.rpc('reservar', {
       p_slug: slug, p_servicio: servicioId, p_barbero: barberoId || null, p_inicio: hueco.inicio,
@@ -70,6 +78,25 @@ export default function Reservar() {
       return;
     }
     setListo(data as Confirmacion);
+  }
+
+  /** Aparta el horario y manda al cliente a pagar a Mercado Pago. */
+  async function pagar() {
+    if (!hueco || !formulario.current?.reportValidity()) return;
+    setError(''); setEnviando(true);
+    try {
+      const r = await llamarPagos<{ url: string }>({
+        accion: 'crear', slug, servicio: servicioId, barbero: barberoId || null, inicio: hueco.inicio,
+        nombre, telefono, notas: notas || null,
+        productos: lineasDelCarrito(carrito),
+      });
+      window.location.href = r.url;
+    } catch (err) {
+      setEnviando(false);
+      setError(mensajeError(err));
+      setHueco(null);
+      const d = dia; setDia(''); setTimeout(() => setDia(d)); // recarga horarios
+    }
   }
 
   if (info === undefined) return <Cargando />;
@@ -87,6 +114,14 @@ export default function Reservar() {
   const { negocio, servicios, barberos } = info;
   const serv = servicios.find((s) => s.id === servicioId);
   const m = (n: number) => dinero(n, negocio.moneda);
+  const modoPago = negocio.pago_en_linea;
+  const anticipo = serv ? Math.round(serv.precio * negocio.anticipo_pct) / 100 : 0;
+  const cobraEnLinea = modoPago !== 'desactivado' && anticipo > 0;
+  const productos = cobraEnLinea ? info.productos || [] : [];
+  const elegidos = productos.filter((p) => (carrito[p.id] || 0) > 0);
+  const totalProductos = elegidos.reduce((a, p) => a + p.precio * carrito[p.id], 0);
+  const aPagar = anticipo + totalProductos;
+  const cambiarCantidad = (id: string, n: number) => setCarrito((c) => ({ ...c, [id]: n }));
 
   if (listo) {
     return (
@@ -114,6 +149,13 @@ export default function Reservar() {
           {negocio.direccion && <p className="tenue pequeno">{negocio.direccion}</p>}
         </div>
       </header>
+      {(info.productos || []).length > 0 && modoPago !== 'desactivado' && (
+        <Link className="aviso-tienda" to={`/r/${negocio.slug}/productos`}>
+          <span aria-hidden>🛍️</span>
+          <span className="crece"><strong>¿Solo quieres productos?</strong><br /><span className="tenue pequeno">Cómpralos sin reservar y recógelos en la sucursal.</span></span>
+          <span aria-hidden>›</span>
+        </Link>
+      )}
 
       <section className="paso">
         <h2><span className="num-paso">1</span> Elige tu servicio</h2>
@@ -156,22 +198,31 @@ export default function Reservar() {
               </button>
             ))}
           </div>
-          {dia && (huecos === null ? <Cargando /> : huecos.length === 0 ? (
+          {dia && (huecos === null ? <Cargando /> : !huecos.some((h) => h.libre !== false) ? (
             <p className="tenue">No hay horarios libres ese día. Prueba otro.</p>
           ) : (
-            <div className="horas">
-              {huecos.map((h) => (
-                <button key={h.inicio} className={`hora ${hueco?.inicio === h.inicio ? 'elegida' : ''}`} onClick={() => setHueco(h)}>
-                  {horaEnTz(h.inicio)}
-                </button>
-              ))}
-            </div>
+            <>
+              <div className="horas">
+                {huecos.map((h) => h.libre === false ? (
+                  <button key={h.inicio} type="button" className="hora ocupada" disabled aria-label={`${horaEnTz(h.inicio)} ocupado`} title="Ocupado">
+                    {horaEnTz(h.inicio)}
+                  </button>
+                ) : (
+                  <button key={h.inicio} className={`hora ${hueco?.inicio === h.inicio ? 'elegida' : ''}`} onClick={() => setHueco(h)}>
+                    {horaEnTz(h.inicio)}
+                  </button>
+                ))}
+              </div>
+              {huecos.some((h) => h.libre === false) && (
+                <p className="tenue pequeno leyenda-horas"><span className="muestra-ocupada" aria-hidden /> Ocupado</p>
+              )}
+            </>
           ))}
         </section>
       )}
 
       {hueco && serv && (
-        <form className="paso tarjeta formulario" onSubmit={reservar}>
+        <form className="paso tarjeta formulario" onSubmit={reservar} ref={formulario}>
           <h2><span className="num-paso">{barberos.length > 1 ? 4 : 3}</span> Tus datos</h2>
           <p>
             <strong>{serv.nombre}</strong> el {fechaEnTz(hueco.inicio)} a las {horaEnTz(hueco.inicio)}
@@ -180,8 +231,45 @@ export default function Reservar() {
           <Campo etiqueta="Nombre"><input value={nombre} onChange={(e) => setNombre(e.target.value)} required minLength={2} maxLength={80} autoComplete="name" /></Campo>
           <Campo etiqueta="WhatsApp o teléfono"><input value={telefono} onChange={(e) => setTelefono(e.target.value)} required inputMode="tel" autoComplete="tel" placeholder="10 dígitos" /></Campo>
           <Campo etiqueta="Comentario (opcional)"><input value={notas} onChange={(e) => setNotas(e.target.value)} maxLength={300} /></Campo>
+          {productos.length > 0 && (
+            <div className="tienda">
+              <h3>¿Quieres llevar algo más?</h3>
+              <p className="tenue pequeno">Págalo ahora y te lo entregan en tu cita.</p>
+              <ProductosTienda productos={productos} carrito={carrito} onCambiar={cambiarCantidad} moneda={negocio.moneda} />
+            </div>
+          )}
+          {cobraEnLinea && (
+            <div className="pago-resumen">
+              {elegidos.length > 0 && (
+                <table className="resumen-tabla">
+                  <tbody>
+                    <tr><td>{serv.nombre}{anticipo < serv.precio && ` (anticipo ${negocio.anticipo_pct}%)`}</td><td className="num">{m(anticipo)}</td></tr>
+                    {elegidos.map((p) => (
+                      <tr key={p.id}><td>{carrito[p.id]} × {p.nombre}</td><td className="num">{m(p.precio * carrito[p.id])}</td></tr>
+                    ))}
+                    <tr className="total"><td>Total a pagar</td><td className="num">{m(aPagar)}</td></tr>
+                  </tbody>
+                </table>
+              )}
+              {anticipo < serv.precio ? (
+                <p>Para apartar se paga un anticipo de <strong>{m(anticipo)}</strong>; el resto del servicio ({m(serv.precio - anticipo)}) en la barbería.</p>
+              ) : elegidos.length === 0 && <p>Puedes pagar ahora <strong>{m(anticipo)}</strong> con tarjeta o Mercado Pago.</p>}
+              <p className="tenue pequeno">Pago seguro con Mercado Pago. Tu horario queda apartado 20 minutos mientras pagas.</p>
+            </div>
+          )}
           <Aviso>{error}</Aviso>
-          <button className="btn btn-primario ancho grande" disabled={enviando}>Confirmar reserva</button>
+          {cobraEnLinea ? (
+            <>
+              <button type="button" className="btn btn-primario ancho grande" disabled={enviando} onClick={pagar}>
+                {enviando ? 'Abriendo Mercado Pago…' : `Pagar ${m(aPagar)} y reservar`}
+              </button>
+              {modoPago === 'opcional' && elegidos.length === 0 && (
+                <button className="btn ancho" disabled={enviando}>Reservar y pagar en la barbería</button>
+              )}
+            </>
+          ) : (
+            <button className="btn btn-primario ancho grande" disabled={enviando}>Confirmar reserva</button>
+          )}
         </form>
       )}
       {!hueco && <Aviso>{error}</Aviso>}

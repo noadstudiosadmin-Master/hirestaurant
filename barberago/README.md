@@ -40,7 +40,8 @@ diseño y la seguridad la dan las políticas RLS. Para otro proyecto, copia `.en
 | `/servicios`, `/productos` | Dueño | Catálogo e inventario |
 | `/equipo` | Dueño | Barberos (color, horario, comisiones) y cuentas con permisos |
 | `/ajustes` | Dueño | Datos, horario, reglas de reserva, enlace público, plan |
-| `/r/:slug` | Clientes | Reserva en línea sin cuenta; `/r/:slug/cancelar/:cita` para cancelar |
+| `/r/:slug` | Clientes | Reserva en línea sin cuenta, con pago opcional u obligatorio; `/r/:slug/cancelar/:cita` para cancelar |
+| `/r/:slug/pago/:cita` | Clientes | Regreso de Mercado Pago: confirma el pago, permite reintentar |
 
 ## Base de datos
 
@@ -51,6 +52,25 @@ Migraciones en `supabase/migrations/` (ya aplicadas en barberaGo). Puntos clave:
 - `reserva_negocio`, `reserva_horarios`, `reservar`, `reserva_cancelar`: únicas funciones abiertas a
   visitantes anónimos; calculan huecos con el horario, las citas y los bloqueos en la zona horaria del negocio.
 - `crear_negocio`: la primera barbería de una cuenta arranca con 30 días de prueba.
+
+## Pagos en línea (Mercado Pago)
+
+Cada barbería conecta **su propia** cuenta en Ajustes > Pagos en línea pegando su Access Token
+(producción `APP_USR-…` o de una cuenta de prueba). El dinero le llega directo; BarberaGo no lo toca.
+La llave se guarda en `privado.pago_cuentas` y solo la lee la Edge Function `pagos`.
+
+Opciones por barbería: no cobrar, que el cliente elija (pagar ahora o en la barbería) u obligar el pago,
+cobrando el servicio completo o un anticipo (50, 30 o 20 %). Al conectar la cuenta queda en "pago obligatorio".
+
+Flujo: el cliente elige horario → `pagos` (`crear`) aparta la cita 20 min con `pago_reservar` y crea la
+preferencia de Checkout Pro → el cliente paga → Mercado Pago avisa al webhook
+(`/functions/v1/pagos?accion=webhook&negocio=<id>`), la función consulta el pago con la llave de la
+barbería y `pago_registrar` confirma la cita. Si el apartado venció y alguien más tomó el horario, el
+pago se devuelve solo. La página de regreso también pregunta a Mercado Pago (`verificar`) por si el
+aviso se atrasa. En Cobrar, lo pagado en línea se descuenta y se reporta aparte (`ventas.pagado_en_linea`).
+
+Edge Function: `supabase/functions/pagos/index.ts` (desplegada con `verify_jwt = false`; cada acción
+valida lo suyo). Variables opcionales: `APP_URL` (por defecto https://barberago.restorago.com) y `ORIGENES`.
 
 Para dar acceso a un empleado: que cree su cuenta y luego agrégalo en Equipo con su correo.
 Para crear códigos de activación, inserta filas en `codigos_activacion` desde el panel de Supabase.

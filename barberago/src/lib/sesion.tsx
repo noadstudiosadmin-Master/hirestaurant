@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import type { Barbero, Miembro, Negocio, Permiso, Servicio, Suscripcion } from './tipos';
@@ -58,10 +58,13 @@ export function SesionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const uid = session?.user.id;
+  const uidCargado = useRef<string | undefined>(undefined);
 
   const recargar = useCallback(async () => {
     if (!uid) { setNegocios([]); setMiembros([]); setSuscripcion(null); setCargando(false); return; }
-    setCargando(true);
+    // Solo la primera carga de cada cuenta muestra "Cargando…"; las recargas no desmontan la pantalla
+    // (así no se pierden los avisos de "Cambios guardados").
+    if (uidCargado.current !== uid) setCargando(true);
     const [m, n, s] = await Promise.all([
       supabase.from('miembros').select('*').eq('usuario_id', uid).eq('activo', true),
       supabase.from('negocios').select('*').order('created_at'),
@@ -70,6 +73,7 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     setMiembros((m.data as Miembro[]) || []);
     setNegocios((n.data as Negocio[]) || []);
     setSuscripcion((s.data as Suscripcion) || null);
+    uidCargado.current = uid;
     setCargando(false);
   }, [uid]);
 

@@ -5,6 +5,7 @@ import { useNegocio } from '../lib/sesion';
 import { fechaCorta } from '../lib/formato';
 import { Aviso, Cabecera, Campo } from '../components/ui';
 import HorarioEditor from '../components/HorarioEditor';
+import PagosAjustes from '../components/PagosAjustes';
 
 const ZONAS = ['America/Mexico_City', 'America/Monterrey', 'America/Cancun', 'America/Chihuahua', 'America/Hermosillo', 'America/Mazatlan', 'America/Tijuana',
   'America/Bogota', 'America/Lima', 'America/Santiago', 'America/Argentina/Buenos_Aires', 'America/Guatemala', 'America/Los_Angeles', 'America/New_York', 'Europe/Madrid'];
@@ -61,6 +62,8 @@ export default function Ajustes() {
           <button className="btn btn-chico" onClick={compartir}>Compartir</button>
         </div>
       </section>
+
+      <PagosAjustes />
 
       <form onSubmit={guardar} className="tarjeta formulario">
         <h2>Datos de la barbería</h2>

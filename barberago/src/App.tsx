@@ -15,6 +15,10 @@ import Equipo from './pages/Equipo';
 import Ajustes from './pages/Ajustes';
 import Reservar from './pages/Reservar';
 import CancelarReserva from './pages/CancelarReserva';
+import PagoReserva from './pages/PagoReserva';
+import Tienda from './pages/Tienda';
+import PagoPedido from './pages/PagoPedido';
+import Pedidos from './pages/Pedidos';
 
 function Interno() {
   const { cargando, session, negocio, miembro, puede } = useSesion();
@@ -27,6 +31,7 @@ function Interno() {
       <Route element={<Layout />}>
         <Route path="/agenda" element={<Agenda />} />
         <Route path="/cobrar" element={<Cobrar />} />
+        <Route path="/pedidos" element={<Pedidos />} />
         <Route path="/clientes" element={<Clientes />} />
         <Route path="/ventas" element={<Ventas />} />
         <Route path="/reportes" element={<Reportes />} />
@@ -49,6 +54,9 @@ export default function App() {
         {/* Páginas públicas para clientes: no requieren cuenta. */}
         <Route path="/r/:slug" element={<Reservar />} />
         <Route path="/r/:slug/cancelar/:cita" element={<CancelarReserva />} />
+        <Route path="/r/:slug/pago/:cita" element={<PagoReserva />} />
+        <Route path="/r/:slug/productos" element={<Tienda />} />
+        <Route path="/r/:slug/pedido/:pedido" element={<PagoPedido />} />
         <Route path="/*" element={<SesionProvider><Interno /></SesionProvider>} />
       </Routes>
     </BrowserRouter>

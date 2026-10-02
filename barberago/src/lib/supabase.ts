@@ -21,3 +21,14 @@ export function mensajeError(e: unknown): string {
   if (m.includes('User already registered')) return 'Ese correo ya tiene cuenta. Inicia sesión';
   return m;
 }
+
+/** Llama la Edge Function de pagos (Mercado Pago) y devuelve su respuesta o lanza el error legible. */
+export async function llamarPagos<T>(cuerpo: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.functions.invoke('pagos', { body: cuerpo });
+  if (error) {
+    const ctx = (error as { context?: Response }).context;
+    const detalle = ctx && typeof ctx.json === 'function' ? await ctx.json().catch(() => null) : null;
+    throw new Error(detalle?.error || 'No se pudo conectar con el sistema de pagos. Intenta de nuevo.');
+  }
+  return data as T;
+}

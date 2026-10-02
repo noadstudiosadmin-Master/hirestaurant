@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useNegocio } from '../lib/sesion';
-import type { Cita, Producto } from '../lib/tipos';
+import type { Cita, CitaProducto, Producto } from '../lib/tipos';
 import { dinero, fechaLarga, hora } from '../lib/formato';
 import { Aviso, Cabecera, Campo } from '../components/ui';
 import ClienteBuscador, { asegurarCliente, type ClienteElegido } from '../components/ClienteBuscador';
 
 type Partida = { clave: string; tipo: 'servicio' | 'producto'; id: string; nombre: string; precio: number; cantidad: number; barberoId: string };
 type Metodo = 'efectivo' | 'tarjeta' | 'transferencia';
-type Ticket = { folio: number; total: number; partidas: Partida[]; propina: number; descuento: number; metodo: Metodo; cliente: string; recibido: number };
+type Ticket = { folio: number; total: number; partidas: Partida[]; propina: number; descuento: number; metodo: Metodo; cliente: string; recibido: number; enLinea: number };
 
 export default function Cobrar() {
   const { negocio, barberos, servicios, miembro } = useNegocio();
@@ -39,27 +39,39 @@ export default function Cobrar() {
     const manana = new Date(hoy.getTime() + 864e5);
     supabase.from('citas').select('*, clientes(nombre, telefono)').eq('negocio_id', negocio.id)
       .in('estado', ['en_curso', 'confirmada', 'pendiente']).gte('inicio', hoy.toISOString()).lt('inicio', manana.toISOString()).order('inicio')
-      .then(({ data }) => setPendientes((data as Cita[]) || []));
+      .then(({ data }) => setPendientes(((data as Cita[]) || []).filter((c) => c.pago_estado !== 'pendiente')));
   }, [negocio.id, ticket]);
 
   useEffect(() => {
     if (!citaId) { setCita(null); return; }
-    supabase.from('citas').select('*, clientes(nombre, telefono)').eq('id', citaId).maybeSingle().then(({ data }) => {
+    Promise.all([
+      supabase.from('citas').select('*, clientes(nombre, telefono)').eq('id', citaId).maybeSingle(),
+      supabase.from('cita_productos').select('*').eq('cita_id', citaId),
+    ]).then(([{ data }, { data: compras }]) => {
       const c = data as Cita | null;
       setCita(c);
       if (!c) return;
       setCliente({ id: c.cliente_id, nombre: c.clientes?.nombre || c.cliente_nombre || '', telefono: c.clientes?.telefono || '' });
       if (c.barbero_id) setBarberoId(c.barbero_id);
       const s = servicios.find((x) => x.id === c.servicio_id);
+      const ps: Partida[] = [];
       if (s) {
-        setPartidas([{ clave: crypto.randomUUID(), tipo: 'servicio', id: s.id, nombre: s.nombre, precio: Number(c.precio ?? s.precio), cantidad: 1, barberoId: c.barbero_id || '' }]);
+        ps.push({ clave: crypto.randomUUID(), tipo: 'servicio', id: s.id, nombre: s.nombre, precio: Number(c.precio ?? s.precio), cantidad: 1, barberoId: c.barbero_id || '' });
       }
+      // Productos que el cliente compró al reservar: se entregan y salen del inventario con este cobro.
+      for (const cp of (compras as CitaProducto[]) || []) {
+        if (cp.producto_id) ps.push({ clave: crypto.randomUUID(), tipo: 'producto', id: cp.producto_id, nombre: cp.nombre, precio: Number(cp.precio_unit), cantidad: cp.cantidad, barberoId: c.barbero_id || '' });
+      }
+      setPartidas(ps);
     });
   }, [citaId, servicios]);
 
   const subtotal = useMemo(() => partidas.reduce((a, p) => a + p.precio * p.cantidad, 0), [partidas]);
   const total = Math.max(subtotal - descuento, 0) + propina;
-  const cambio = metodo === 'efectivo' && recibido > total ? recibido - total : 0;
+  // Lo que el cliente ya pagó al reservar en línea se descuenta de lo que se cobra aquí.
+  const enLinea = cita?.pago_estado === 'pagado' ? Math.min(Number(cita.pago_monto || 0), total) : 0;
+  const porCobrar = total - enLinea;
+  const cambio = metodo === 'efectivo' && recibido > porCobrar ? recibido - porCobrar : 0;
 
   function agregar(tipo: 'servicio' | 'producto', id: string, nombre: string, precio: number) {
     setPartidas((ps) => {
@@ -88,8 +100,8 @@ export default function Cobrar() {
         p_cliente: clienteId, p_barbero: barberoId || null, p_cita: cita?.id || null, p_notas: notas || null,
       });
       if (error) throw error;
-      const r = data as { folio: number; total: number };
-      setTicket({ folio: r.folio, total: r.total, partidas, propina, descuento, metodo, cliente: cliente.nombre, recibido });
+      const r = data as { folio: number; total: number; pagado_en_linea: number };
+      setTicket({ folio: r.folio, total: r.total, partidas, propina, descuento, metodo, cliente: cliente.nombre, recibido, enLinea: Number(r.pagado_en_linea || 0) });
       limpiar();
     } catch (err) {
       setError(mensajeError(err));
@@ -113,9 +125,15 @@ export default function Cobrar() {
               ))}
               {ticket.descuento > 0 && <tr><td>Descuento</td><td className="num">−{dinero(ticket.descuento, negocio.moneda)}</td></tr>}
               {ticket.propina > 0 && <tr><td>Propina</td><td className="num">{dinero(ticket.propina, negocio.moneda)}</td></tr>}
-              <tr className="total"><td>Total ({ticket.metodo})</td><td className="num">{dinero(ticket.total, negocio.moneda)}</td></tr>
-              {ticket.metodo === 'efectivo' && ticket.recibido > ticket.total && (
-                <tr><td>Cambio</td><td className="num">{dinero(ticket.recibido - ticket.total, negocio.moneda)}</td></tr>
+              {ticket.enLinea > 0 ? (
+                <>
+                  <tr className="total"><td>Total</td><td className="num">{dinero(ticket.total, negocio.moneda)}</td></tr>
+                  <tr><td>Pagado en línea</td><td className="num">−{dinero(ticket.enLinea, negocio.moneda)}</td></tr>
+                  <tr className="total"><td>Pagado aquí ({ticket.metodo})</td><td className="num">{dinero(ticket.total - ticket.enLinea, negocio.moneda)}</td></tr>
+                </>
+              ) : <tr className="total"><td>Total ({ticket.metodo})</td><td className="num">{dinero(ticket.total, negocio.moneda)}</td></tr>}
+              {ticket.metodo === 'efectivo' && ticket.recibido > ticket.total - ticket.enLinea && (
+                <tr><td>Cambio</td><td className="num">{dinero(ticket.recibido - (ticket.total - ticket.enLinea), negocio.moneda)}</td></tr>
               )}
             </tbody>
           </table>
@@ -173,6 +191,7 @@ export default function Cobrar() {
 
         <section className="tarjeta cuenta">
           {cita && <Aviso tipo="info">Cobrando la cita de las {hora(cita.inicio)}</Aviso>}
+          {enLinea > 0 && <Aviso tipo="ok">Ya pagó {dinero(enLinea, negocio.moneda)} en línea al reservar.</Aviso>}
           <Campo etiqueta="Cliente"><ClienteBuscador negocioId={negocio.id} valor={cliente} onCambio={setCliente} /></Campo>
           <Campo etiqueta="Barbero (recibe la propina)">
             <select value={barberoId} onChange={(e) => setBarberoId(e.target.value)}>
@@ -232,11 +251,13 @@ export default function Cobrar() {
             {descuento > 0 && <div><span>Descuento</span><span>−{dinero(descuento, negocio.moneda)}</span></div>}
             {propina > 0 && <div><span>Propina</span><span>{dinero(propina, negocio.moneda)}</span></div>}
             <div className="total"><span>Total</span><span>{dinero(total, negocio.moneda)}</span></div>
+            {enLinea > 0 && <div><span>Pagado en línea</span><span>−{dinero(enLinea, negocio.moneda)}</span></div>}
+            {enLinea > 0 && <div className="total"><span>Por cobrar</span><span>{dinero(porCobrar, negocio.moneda)}</span></div>}
             {cambio > 0 && <div><span>Cambio</span><span>{dinero(cambio, negocio.moneda)}</span></div>}
           </div>
           <Aviso>{error}</Aviso>
           <button className="btn btn-primario ancho grande" onClick={cobrar} disabled={enviando || !partidas.length}>
-            Cobrar {dinero(total, negocio.moneda)}
+            {enLinea > 0 && porCobrar <= 0 ? 'Cerrar venta (ya pagada)' : `Cobrar ${dinero(porCobrar, negocio.moneda)}`}
           </button>
         </section>
       </div>

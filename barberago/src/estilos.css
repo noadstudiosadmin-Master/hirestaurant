@@ -318,6 +318,13 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
 .dia small { color: var(--texto-2); font-size: .75rem; text-transform: capitalize; }
 .horas { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: .4rem; }
 .hora { padding: .6rem 0; border-radius: 10px; border: 1px solid var(--borde); background: var(--superficie); cursor: pointer; font-variant-numeric: tabular-nums; }
+.hora.ocupada, .muestra-ocupada {
+  background: color-mix(in srgb, var(--peligro) 14%, var(--superficie)); border-color: color-mix(in srgb, var(--peligro) 55%, var(--borde));
+  color: var(--peligro);
+}
+.hora.ocupada { cursor: not-allowed; text-decoration: line-through; opacity: 1; }
+.leyenda-horas { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; }
+.muestra-ocupada { display: inline-block; width: 14px; height: 14px; border: 1px solid; border-radius: 4px; }
 .palomita { width: 64px; height: 64px; border-radius: 50%; background: var(--ok); color: #fff; font-size: 2rem; display: grid; place-items: center; margin: 0 auto; }
 .grande-texto { font-size: 1.3rem; font-weight: 700; }
 .publica-pie { margin-top: 2.5rem; text-align: center; }
@@ -359,3 +366,38 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px s
   .tarjeta { box-shadow: none; border: 0; }
   body { background: #fff; color: #000; }
 }
+
+/* Pagos en línea */
+.pago-resumen { background: var(--superficie-2); border-radius: 10px; padding: .7rem .9rem; }
+.pago-resumen p { margin: 0 0 .25rem; }
+.aviso-tienda { display: flex; align-items: center; gap: .75rem; padding: .7rem .9rem; margin-bottom: 1rem; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); color: inherit; text-decoration: none; }
+.aviso-tienda:hover { border-color: var(--primario); }
+.aviso-tienda > span:first-child { font-size: 1.4rem; }
+.recoger { background: var(--superficie-2); border-radius: 10px; padding: .7rem .9rem; }
+.recoger p { margin: 0 0 .2rem; }
+.lista-simple { list-style: none; padding: 0; margin: .5rem 0; }
+.lista-simple li { padding: .15rem 0; }
+.lista-pedidos { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .75rem; margin-bottom: 1.5rem; }
+.lista-pedidos .tarjeta + .tarjeta { margin-top: 0; }
+.pedido p { margin: .6rem 0; }
+.pedido-cabeza { display: flex; align-items: center; gap: .75rem; }
+.numero-pedido.chico { font-size: 1.5rem; margin: 0; color: var(--primario); }
+.subtitulo { font-size: 1.05rem; margin: 1.25rem 0 .5rem; }
+.numero-pedido { font-size: 2.2rem; font-weight: 800; letter-spacing: .02em; margin: .25rem 0; }
+.tienda { display: flex; flex-direction: column; gap: .45rem; }
+.tienda h3 { margin: .25rem 0 0; font-size: 1rem; }
+.tienda > p { margin: 0 0 .2rem; }
+.producto-tienda { display: flex; align-items: center; gap: .75rem; padding: .6rem .75rem; border: 1px solid var(--borde); border-radius: 12px; background: var(--superficie); }
+.producto-tienda.elegida { border-color: var(--primario); box-shadow: inset 0 0 0 1px var(--primario); }
+.contador { display: flex; align-items: center; gap: .35rem; }
+.contador span { min-width: 1.5rem; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.contador .btn-icono { border: 1px solid var(--borde); width: 36px; height: 36px; font-size: 1.1rem; }
+.resumen-tabla { width: 100%; border-collapse: collapse; margin-bottom: .4rem; }
+.resumen-tabla td { padding: .15rem 0; }
+.resumen-tabla .num { text-align: right; font-variant-numeric: tabular-nums; }
+.resumen-tabla .total td { border-top: 1px solid var(--borde); padding-top: .35rem; font-weight: 700; }
+.pasos-lista { margin: 0; padding-left: 1.2rem; display: grid; gap: .3rem; }
+.insignia-prueba { margin-left: .5rem; background: color-mix(in srgb, var(--alerta) 16%, var(--superficie)); color: var(--alerta); }
+.insignia-pago { background: color-mix(in srgb, var(--ok) 14%, var(--superficie)); color: var(--ok); }
+.cita .etiqueta-pago { font-size: .68rem; color: var(--ok); font-weight: 600; }
+.cita.apartado { opacity: .7; border-style: dashed; }
