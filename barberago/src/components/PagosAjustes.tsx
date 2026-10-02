@@ -21,8 +21,8 @@ export default function PagosAjustes() {
     try {
       const r = await llamarPagos<{ cuenta: string; prueba: boolean }>({ accion: 'conectar', negocio: negocio.id, access_token: token });
       setToken('');
-      setOk(`Cuenta ${r.cuenta} conectada${r.prueba ? ' en modo de prueba' : ''}. Ya puedes cobrar al reservar.`);
-      setModo((m) => (m === 'desactivado' ? 'opcional' : m));
+      setOk(`Cuenta ${r.cuenta} conectada${r.prueba ? ' en modo de prueba' : ''}. Desde ahora tus clientes pagan al reservar.`);
+      setModo((m) => (m === 'desactivado' ? 'obligatorio' : m));
       await recargar();
     } catch (err) {
       setError(mensajeError(err));
@@ -79,8 +79,8 @@ export default function PagosAjustes() {
           )}
           <Campo etiqueta="Al reservar en línea">
             <select value={modo} onChange={(e) => setModo(e.target.value as ModoPago)}>
-              <option value="opcional">El cliente elige: pagar ahora o en la barbería</option>
               <option value="obligatorio">Pago obligatorio para reservar</option>
+              <option value="opcional">El cliente elige: pagar ahora o en la barbería</option>
               <option value="desactivado">No cobrar en línea</option>
             </select>
           </Campo>

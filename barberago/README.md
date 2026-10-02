@@ -60,7 +60,7 @@ Cada barbería conecta **su propia** cuenta en Ajustes > Pagos en línea pegando
 La llave se guarda en `privado.pago_cuentas` y solo la lee la Edge Function `pagos`.
 
 Opciones por barbería: no cobrar, que el cliente elija (pagar ahora o en la barbería) u obligar el pago,
-cobrando el servicio completo o un anticipo (50, 30 o 20 %).
+cobrando el servicio completo o un anticipo (50, 30 o 20 %). Al conectar la cuenta queda en "pago obligatorio".
 
 Flujo: el cliente elige horario → `pagos` (`crear`) aparta la cita 20 min con `pago_reservar` y crea la
 preferencia de Checkout Pro → el cliente paga → Mercado Pago avisa al webhook
